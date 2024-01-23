@@ -1,0 +1,29 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: mail-sender-pipeline
+  namespace: <DEVELOPER NAMESPACE>
+spec:
+  params:
+    - name: repository
+      type: string
+    - name: revision
+      type: string
+    - name: project-key
+      type: string
+  tasks:
+    - name: mail-sender-task
+      taskRef:
+        name: sendmail
+      params:
+        # We have to pass both the url and the rev because Cartographer
+        # expects those from any ClusterSourceTemplate. The TaskRun that
+        # gets automatically created will have those parameters ONLY IF
+        # we list them here.
+        - name: source-url
+          value: $(params.repository)   # this comes from the 'params' in the spec above ^
+        - name: source-revision
+          value: $(params.revision)     # This one, too
+        - name: PROJECT_KEY
+          value: $(params.project-key)

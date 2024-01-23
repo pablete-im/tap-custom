@@ -1,0 +1,19 @@
+apiVersion: carto.run/v1alpha1
+kind: ClusterTemplate
+metadata:
+  name: mail-sender-template
+spec:
+  # We have to use `ytt` instead of `template` so we can fetch variables from Cartographer.
+  ytt: |
+    #@ load("@ytt:data", "data")
+    apiVersion: tekton.dev/v1beta1
+    kind: PipelineRun
+    metadata:
+      generateName: mail-sender-pipeline-run-
+    spec:
+      pipelineRef:
+        name: mail-sender-pipeline
+      params:
+        - name: project-key
+          value: #@ data.values.workload.metadata.name
+  lifecycle: tekton

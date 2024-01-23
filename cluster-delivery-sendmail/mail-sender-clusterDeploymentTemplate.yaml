@@ -1,0 +1,38 @@
+apiVersion: carto.run/v1alpha1
+kind: ClusterDeploymentTemplate
+metadata:
+  name: mail-sender-deploy-template
+spec:
+  healthRule:
+    alwaysHealthy: {}
+  lifecycle: tekton
+#  observedCompletion:
+#    failed:
+#      key: .status.conditions[?(@.type=="Succeeded")].status
+#      value: "False"
+#    succeeded:
+#      key: .status.conditions[?(@.type=="Succeeded")].status
+#      value: "True"
+  observedMatches:
+    - input: .spec.params[?(@.name=="project-key")].value
+      output: .status.pipelineSpec.tasks[0].params[?(@.name=="PROJECT_KEY")].value
+  params:
+  - default: default
+    name: serviceAccount
+
+  ytt: |
+    #@ load("@ytt:data", "data")
+    apiVersion: tekton.dev/v1beta1
+    kind: PipelineRun
+    metadata:
+      generateName: mail-sender-pipeline-run-
+    spec:
+      pipelineRef:
+        name: mail-sender-pipeline
+      params:
+        - name: repository
+          value: #@ data.values.deployment.url
+        - name: revision
+          value: #@ data.values.deployment.revision
+        - name: project-key
+          value: #@ data.values.deliverable.metadata.name

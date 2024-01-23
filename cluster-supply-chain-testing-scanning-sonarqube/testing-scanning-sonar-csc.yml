@@ -1,0 +1,293 @@
+apiVersion: carto.run/v1alpha1
+kind: ClusterSupplyChain
+metadata:
+  name: source-test-scan-to-url-with-sonarqube
+spec:
+  params:
+  - default: ""
+    name: ca_cert_data
+  - name: maven_repository_url
+    value: https://repo.maven.apache.org/maven2
+  - default: main
+    name: gitops_branch
+  - default: supplychain
+    name: gitops_user_name
+  - default: supplychain
+    name: gitops_user_email
+  - default: supplychain@cluster.local
+    name: gitops_commit_message
+  - default: gitlab-http-secret
+    name: gitops_ssh_secret
+  - default: ""
+    name: gitops_commit_branch
+  - name: image_scanning_service_account_publisher
+    value: default
+  - default: default
+    name: image_scanning_service_account_scanner
+  - name: image_scanning_cli
+    value:
+      image: harbor.tanzu.lab/tap/tap-packages@sha256:675673a6d495d6f6a688497b754cee304960d9ad56e194cf4f4ea6ab53ca71d6
+  - default: 4Gi
+    name: image_scanning_workspace_size
+  - name: image_scanning_active_keychains
+    value: []
+  - name: image_scanning_workspace_bindings
+    value: []
+  - name: image_scanning_steps_env_vars
+    value: []
+  resources:
+  - name: source-provider
+    params:
+    - default: default
+      name: serviceAccount
+    - default: go-git
+      name: gitImplementation
+    templateRef:
+      kind: ClusterSourceTemplate
+      name: source-template
+#
+# Sonarqube resource
+#
+  - name: sonarqube-scan
+    sources:
+    - name: source
+      resource: source-provider
+    templateRef:
+      kind: ClusterSourceTemplate
+      name: sonarqube-template
+#
+# END Sonarqube resource
+#
+  - name: source-tester
+    sources:
+    - name: source
+      resource: sonarqube-scan  # This used to say 'source-provider' but we changed it to run after our sonarqube-scan instead.
+    templateRef:
+      kind: ClusterSourceTemplate
+      name: testing-pipeline
+  - name: image-provider
+    params:
+    - default: default
+      name: serviceAccount
+    - name: registry
+      value:
+        ca_cert_data: |
+          -----BEGIN CERTIFICATE-----
+          MIIDYTCCAkmgAwIBAgIQewD1cscgRqhOtzWFlmNnqzANBgkqhkiG9w0BAQsFADBD
+          MRMwEQYKCZImiZPyLGQBGRYDbGFiMRUwEwYKCZImiZPyLGQBGRYFdGFuenUxFTAT
+          BgNVBAMTDHRhbnp1LWxhYi1jYTAeFw0yMjEwMjYwMjQxMjNaFw0zMjEwMjYwMjUx
+          MThaMEMxEzARBgoJkiaJk/IsZAEZFgNsYWIxFTATBgoJkiaJk/IsZAEZFgV0YW56
+          dTEVMBMGA1UEAxMMdGFuenUtbGFiLWNhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+          MIIBCgKCAQEAtBeGpFjBfJkQd1+VdUuCspWXuB0yzsu+uGaSEsQCEJ0u8xX372OS
+          9TPSRbk5ZWUSqT8inPnypEnvwmW/l+U1a+ZI5VKZP/jMJQwp5wWvm4pqGx//sP8Y
+          Zux3fMnBzQTTMu3tJil5MHGuIBWs4/FbnSREM8h2j8hah3dwSVf+IKbjPaB/kYIy
+          FrY8hHIpt0jdkd41CrNY3V37T2GXXypJ1LzJwXxgxQKCSv6+vRKJts+M3eLHRhi4
+          H66zny2XLEjgtHWIOXwy637P+WJiRTHnW8hfkxCm3wUw1rJFgEnAr1RY+0yn+Xbk
+          n0X9t6OpOOaN3TMXSGdJgJJGEHLOlq8TzQIDAQABo1EwTzALBgNVHQ8EBAMCAYYw
+          DwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUKJpIyYnQurxh6m5h3rf3n+Afu1ow
+          EAYJKwYBBAGCNxUBBAMCAQAwDQYJKoZIhvcNAQELBQADggEBAHHNRQwS2DuXTjYD
+          9B9PGw1JDaBkKSaoFX4Je2FUdenUIZIx9jOFqEdHtO7iUDF7KXZFAo1B/hAiZkn/
+          hZahjB2fEQcMcgMpfwbR7ddh3f1ags+akAYCNTwY96Xwa3EVJnYWczOuuoZP2Qtz
+          e6tSBSYg/uNpQxYK51V73UUVK+R9mguJ0eg2f7HUrzLHJfw7FVSpmb9U373ud6DC
+          P2QD3keL2+YbT6HZEbTsMaiWRsOAKXZZt/WIFl8ceXTUzV02ddubJ8YOqSUb16ep
+          ImJpx4Q2OFd2i3L8HSNB4D9M7u13c3XNjpJOdJwMXLXVLRMMPiM5mVpo7t8NEzt1
+          kfMrBSU=
+          -----END CERTIFICATE-----
+        repository: tap
+        server: harbor.tanzu.lab
+    - default: default
+      name: clusterBuilder
+    - default: ./Dockerfile
+      name: dockerfile
+    - default: ./
+      name: docker_build_context
+    - default: []
+      name: docker_build_extra_args
+    sources:
+    - name: source
+      resource: source-tester
+    templateRef:
+      kind: ClusterImageTemplate
+      options:
+      - name: kpack-template
+        selector:
+          matchFields:
+          - key: spec.params[?(@.name=="dockerfile")]
+            operator: DoesNotExist
+      - name: kaniko-template
+        selector:
+          matchFields:
+          - key: spec.params[?(@.name=="dockerfile")]
+            operator: Exists
+  - images:
+    - name: image
+      resource: image-provider
+    name: image-scanner
+    params:
+    - default: lax-scan-policy
+      name: scanning_image_policy
+    - default: private-image-scan-template
+      name: scanning_image_template
+    - name: registry
+      value:
+        ca_cert_data: |
+          -----BEGIN CERTIFICATE-----
+          MIIDYTCCAkmgAwIBAgIQewD1cscgRqhOtzWFlmNnqzANBgkqhkiG9w0BAQsFADBD
+          MRMwEQYKCZImiZPyLGQBGRYDbGFiMRUwEwYKCZImiZPyLGQBGRYFdGFuenUxFTAT
+          BgNVBAMTDHRhbnp1LWxhYi1jYTAeFw0yMjEwMjYwMjQxMjNaFw0zMjEwMjYwMjUx
+          MThaMEMxEzARBgoJkiaJk/IsZAEZFgNsYWIxFTATBgoJkiaJk/IsZAEZFgV0YW56
+          dTEVMBMGA1UEAxMMdGFuenUtbGFiLWNhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+          MIIBCgKCAQEAtBeGpFjBfJkQd1+VdUuCspWXuB0yzsu+uGaSEsQCEJ0u8xX372OS
+          9TPSRbk5ZWUSqT8inPnypEnvwmW/l+U1a+ZI5VKZP/jMJQwp5wWvm4pqGx//sP8Y
+          Zux3fMnBzQTTMu3tJil5MHGuIBWs4/FbnSREM8h2j8hah3dwSVf+IKbjPaB/kYIy
+          FrY8hHIpt0jdkd41CrNY3V37T2GXXypJ1LzJwXxgxQKCSv6+vRKJts+M3eLHRhi4
+          H66zny2XLEjgtHWIOXwy637P+WJiRTHnW8hfkxCm3wUw1rJFgEnAr1RY+0yn+Xbk
+          n0X9t6OpOOaN3TMXSGdJgJJGEHLOlq8TzQIDAQABo1EwTzALBgNVHQ8EBAMCAYYw
+          DwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUKJpIyYnQurxh6m5h3rf3n+Afu1ow
+          EAYJKwYBBAGCNxUBBAMCAQAwDQYJKoZIhvcNAQELBQADggEBAHHNRQwS2DuXTjYD
+          9B9PGw1JDaBkKSaoFX4Je2FUdenUIZIx9jOFqEdHtO7iUDF7KXZFAo1B/hAiZkn/
+          hZahjB2fEQcMcgMpfwbR7ddh3f1ags+akAYCNTwY96Xwa3EVJnYWczOuuoZP2Qtz
+          e6tSBSYg/uNpQxYK51V73UUVK+R9mguJ0eg2f7HUrzLHJfw7FVSpmb9U373ud6DC
+          P2QD3keL2+YbT6HZEbTsMaiWRsOAKXZZt/WIFl8ceXTUzV02ddubJ8YOqSUb16ep
+          ImJpx4Q2OFd2i3L8HSNB4D9M7u13c3XNjpJOdJwMXLXVLRMMPiM5mVpo7t8NEzt1
+          kfMrBSU=
+          -----END CERTIFICATE-----
+        repository: tap
+        server: harbor.tanzu.lab
+    templateRef:
+      kind: ClusterImageTemplate
+      name: image-scanner-template
+  - images:
+    - name: image
+      resource: image-scanner
+    name: config-provider
+    params:
+    - default: default
+      name: serviceAccount
+    templateRef:
+      kind: ClusterConfigTemplate
+      name: convention-template
+  - configs:
+    - name: config
+      resource: config-provider
+    name: app-config
+    templateRef:
+      kind: ClusterConfigTemplate
+      options:
+      - name: config-template
+        selector:
+          matchLabels:
+            apps.tanzu.vmware.com/workload-type: web
+      - name: server-template
+        selector:
+          matchLabels:
+            apps.tanzu.vmware.com/workload-type: server
+      - name: worker-template
+        selector:
+          matchLabels:
+            apps.tanzu.vmware.com/workload-type: worker
+  - configs:
+    - name: app_def
+      resource: app-config
+    name: service-bindings
+    templateRef:
+      kind: ClusterConfigTemplate
+      name: service-bindings
+  - configs:
+    - name: app_def
+      resource: service-bindings
+    name: api-descriptors
+    templateRef:
+      kind: ClusterConfigTemplate
+      name: api-descriptors
+  - configs:
+    - name: config
+      resource: api-descriptors
+    name: config-writer
+    params:
+    - default: default
+      name: serviceAccount
+    - name: registry
+      value:
+        ca_cert_data: |
+          -----BEGIN CERTIFICATE-----
+          MIIDYTCCAkmgAwIBAgIQewD1cscgRqhOtzWFlmNnqzANBgkqhkiG9w0BAQsFADBD
+          MRMwEQYKCZImiZPyLGQBGRYDbGFiMRUwEwYKCZImiZPyLGQBGRYFdGFuenUxFTAT
+          BgNVBAMTDHRhbnp1LWxhYi1jYTAeFw0yMjEwMjYwMjQxMjNaFw0zMjEwMjYwMjUx
+          MThaMEMxEzARBgoJkiaJk/IsZAEZFgNsYWIxFTATBgoJkiaJk/IsZAEZFgV0YW56
+          dTEVMBMGA1UEAxMMdGFuenUtbGFiLWNhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+          MIIBCgKCAQEAtBeGpFjBfJkQd1+VdUuCspWXuB0yzsu+uGaSEsQCEJ0u8xX372OS
+          9TPSRbk5ZWUSqT8inPnypEnvwmW/l+U1a+ZI5VKZP/jMJQwp5wWvm4pqGx//sP8Y
+          Zux3fMnBzQTTMu3tJil5MHGuIBWs4/FbnSREM8h2j8hah3dwSVf+IKbjPaB/kYIy
+          FrY8hHIpt0jdkd41CrNY3V37T2GXXypJ1LzJwXxgxQKCSv6+vRKJts+M3eLHRhi4
+          H66zny2XLEjgtHWIOXwy637P+WJiRTHnW8hfkxCm3wUw1rJFgEnAr1RY+0yn+Xbk
+          n0X9t6OpOOaN3TMXSGdJgJJGEHLOlq8TzQIDAQABo1EwTzALBgNVHQ8EBAMCAYYw
+          DwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUKJpIyYnQurxh6m5h3rf3n+Afu1ow
+          EAYJKwYBBAGCNxUBBAMCAQAwDQYJKoZIhvcNAQELBQADggEBAHHNRQwS2DuXTjYD
+          9B9PGw1JDaBkKSaoFX4Je2FUdenUIZIx9jOFqEdHtO7iUDF7KXZFAo1B/hAiZkn/
+          hZahjB2fEQcMcgMpfwbR7ddh3f1ags+akAYCNTwY96Xwa3EVJnYWczOuuoZP2Qtz
+          e6tSBSYg/uNpQxYK51V73UUVK+R9mguJ0eg2f7HUrzLHJfw7FVSpmb9U373ud6DC
+          P2QD3keL2+YbT6HZEbTsMaiWRsOAKXZZt/WIFl8ceXTUzV02ddubJ8YOqSUb16ep
+          ImJpx4Q2OFd2i3L8HSNB4D9M7u13c3XNjpJOdJwMXLXVLRMMPiM5mVpo7t8NEzt1
+          kfMrBSU=
+          -----END CERTIFICATE-----
+        repository: tap
+        server: harbor.tanzu.lab
+    templateRef:
+      kind: ClusterTemplate
+      name: config-writer-template
+  - name: deliverable
+    params:
+    - name: registry
+      value:
+        ca_cert_data: |
+          -----BEGIN CERTIFICATE-----
+          MIIDYTCCAkmgAwIBAgIQewD1cscgRqhOtzWFlmNnqzANBgkqhkiG9w0BAQsFADBD
+          MRMwEQYKCZImiZPyLGQBGRYDbGFiMRUwEwYKCZImiZPyLGQBGRYFdGFuenUxFTAT
+          BgNVBAMTDHRhbnp1LWxhYi1jYTAeFw0yMjEwMjYwMjQxMjNaFw0zMjEwMjYwMjUx
+          MThaMEMxEzARBgoJkiaJk/IsZAEZFgNsYWIxFTATBgoJkiaJk/IsZAEZFgV0YW56
+          dTEVMBMGA1UEAxMMdGFuenUtbGFiLWNhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+          MIIBCgKCAQEAtBeGpFjBfJkQd1+VdUuCspWXuB0yzsu+uGaSEsQCEJ0u8xX372OS
+          9TPSRbk5ZWUSqT8inPnypEnvwmW/l+U1a+ZI5VKZP/jMJQwp5wWvm4pqGx//sP8Y
+          Zux3fMnBzQTTMu3tJil5MHGuIBWs4/FbnSREM8h2j8hah3dwSVf+IKbjPaB/kYIy
+          FrY8hHIpt0jdkd41CrNY3V37T2GXXypJ1LzJwXxgxQKCSv6+vRKJts+M3eLHRhi4
+          H66zny2XLEjgtHWIOXwy637P+WJiRTHnW8hfkxCm3wUw1rJFgEnAr1RY+0yn+Xbk
+          n0X9t6OpOOaN3TMXSGdJgJJGEHLOlq8TzQIDAQABo1EwTzALBgNVHQ8EBAMCAYYw
+          DwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUKJpIyYnQurxh6m5h3rf3n+Afu1ow
+          EAYJKwYBBAGCNxUBBAMCAQAwDQYJKoZIhvcNAQELBQADggEBAHHNRQwS2DuXTjYD
+          9B9PGw1JDaBkKSaoFX4Je2FUdenUIZIx9jOFqEdHtO7iUDF7KXZFAo1B/hAiZkn/
+          hZahjB2fEQcMcgMpfwbR7ddh3f1ags+akAYCNTwY96Xwa3EVJnYWczOuuoZP2Qtz
+          e6tSBSYg/uNpQxYK51V73UUVK+R9mguJ0eg2f7HUrzLHJfw7FVSpmb9U373ud6DC
+          P2QD3keL2+YbT6HZEbTsMaiWRsOAKXZZt/WIFl8ceXTUzV02ddubJ8YOqSUb16ep
+          ImJpx4Q2OFd2i3L8HSNB4D9M7u13c3XNjpJOdJwMXLXVLRMMPiM5mVpo7t8NEzt1
+          kfMrBSU=
+          -----END CERTIFICATE-----
+        repository: tap
+        server: harbor.tanzu.lab
+    - default: go-git
+      name: gitImplementation
+    templateRef:
+      kind: ClusterTemplate
+      name: deliverable-template-mail # This is used to set a custom ClusterTemplate that sets labels that will match the selector for our custom ClusterDelivery object that will send an email after the deployment 
+  selector:
+    apps.tanzu.vmware.com/sonar: "true"
+  selectorMatchExpressions:
+  - key: apps.tanzu.vmware.com/workload-type
+    operator: In
+    values:
+    - web
+    - server
+    - worker
+status:
+  conditions:
+  - lastTransitionTime: "2023-12-28T00:07:21Z"
+    message: ""
+    reason: Ready
+    status: "True"
+    type: TemplatesReady
+  - lastTransitionTime: "2023-12-28T00:07:21Z"
+    message: ""
+    reason: Ready
+    status: "True"
+    type: Ready
+  observedGeneration: 1

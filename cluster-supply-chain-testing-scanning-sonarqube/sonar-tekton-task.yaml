@@ -1,0 +1,164 @@
+#
+# ref: https://hub.tekton.dev/tekton/task/sonarqube-scanner
+# This file has been modified to include the SONAR_LOGIN parameter.
+#
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: sonarqube-scanner
+  namespace: <DEVELOPER NAMESPACE>
+  labels:
+    app.kubernetes.io/version: "0.2"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Security
+    tekton.dev/tags: security
+    tekton.dev/displayName: "sonarqube scanner"
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    The following task can be used to perform static analysis on the source code
+    provided the SonarQube server is hosted
+    SonarQube is the leading tool for continuously inspecting the Code Quality and Security
+    of your codebases, all while empowering development teams. Analyze over 25 popular
+    programming languages including C#, VB.Net, JavaScript, TypeScript and C++. It detects
+    bugs, vulnerabilities and code smells across project branches and pull requests.
+  params:
+    - name: SONAR_HOST_URL
+      description: Host URL where the sonarqube server is running
+      default: "http://sonar.tanzu.lab"
+    - name: SONAR_PROJECT_KEY
+      description: Project's unique key
+      default: "carto-key"
+    - name: SONAR_LOGIN
+      description: Auth for the project
+      default: "admin"
+    - name: SONAR_PASSWORD
+      description: Auth for the project
+      default: "pass"
+    - name: source-url
+      description: Location of the source code
+    - name: source-revision
+      description: Revision of the source code
+    - name: tokenSecretName
+      default: "sonarqube-credentials"
+  stepTemplate:
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 0
+      seccompProfile:
+        type: RuntimeDefault
+  workspaces:
+    - name: tmp-workspace
+  steps:
+    - name: compile
+      image: harbor.tanzu.lab/library/maven:latest
+      workingDir: $(workspaces.tmp-workspace.path)
+      script: |
+        #!/usr/bin/env bash
+        # Download the code from the location created by Cartographer
+        # (Cartographer already fetched the code for us, so we don't 
+        # need to fetch it from the git repo).
+        wget -qO- $(params.source-url) | tar xvz -m
+        mkdir .m2
+        mvn -Dmaven.repo.local=$(workspaces.tmp-workspace.path)/.m2 -X compile
+
+    - name: sonar-properties-create
+      image: harbor.tanzu.lab/library/maven:latest
+      workingDir: $(workspaces.tmp-workspace.path)
+      env:
+      - name: SONAR_HOST_URL  ## add this
+        valueFrom:
+          secretKeyRef:
+            name: $(params.tokenSecretName)
+            key: sonar_host_url
+      - name: SONAR_PASSWORD  ## add this
+        valueFrom:
+          secretKeyRef:
+            name: $(params.tokenSecretName)
+            key: sonar_password
+      - name: SONAR_LOGIN  ## add this
+        valueFrom:
+          secretKeyRef:
+            name: $(params.tokenSecretName)
+            key: sonar_login
+      - name: SONAR_TOKEN  ## add this
+        valueFrom:
+          secretKeyRef:
+            name: $(params.tokenSecretName)
+            key: sonar_token
+#      - name: SONAR_CA_CRT  ## add this
+#        valueFrom:
+#          secretKeyRef:
+#            name: $(params.tokenSecretName)
+#            key: sonar_ca_crt
+      script: |
+        #!/usr/bin/env bash
+        replaceValues() {
+          filename=$1
+          thekey=$2
+          newvalue=$3
+          if ! grep -R "^[#]*\s*${thekey}=.*" $filename >/dev/null; then
+            echo "APPENDING because '${thekey}' not found"
+            echo "" >>$filename
+            echo "$thekey=$newvalue" >>$filename
+          else
+            echo "SETTING because '${thekey}' found already"
+            sed -ir "s|^[#]*\s*${thekey}=.*|$thekey=$newvalue|" $filename
+          fi
+        }
+        
+        # If we were given a properties file, then use that.
+        if [[ -f $(workspaces.tmp-workspace.path)/sonar-project.properties ]]; then
+          echo "using user provided sonar-project.properties file"
+          cp -RL $(workspaces.tmp-workspace.path)/sonar-project.properties $(workspaces.tmp-workspace.path)/sonar-project.properties
+        fi
+        if [[ -f $(workspaces.tmp-workspace.path)/sonar-project.properties ]]; then
+
+          # Allow overrides from parameters passed in from the supply chain.
+          if [[ -n "$(params.SONAR_HOST_URL)" ]]; then
+            replaceValues $(workspaces.tmp-workspace.path)/sonar-project.properties sonar.host.url $(params.SONAR_HOST_URL)
+          fi
+          if [[ -n "$(params.SONAR_PROJECT_KEY)" ]]; then
+            replaceValues $(workspaces.tmp-workspace.path)/sonar-project.properties sonar.projectKey $(params.SONAR_PROJECT_KEY)
+          fi
+        else
+          touch sonar-project.properties
+          echo "sonar.projectKey=$(params.SONAR_PROJECT_KEY)" >> sonar-project.properties
+          echo "sonar.qualitygate.wait=true" >> sonar-project.properties
+          echo "sonar.qualitygate.timeout=300" >> sonar-project.properties
+          echo "sonar.sources=." >> sonar-project.properties
+          echo "sonar.java.binaries=./target/classes" >> sonar-project.properties
+          
+          ## Obtain sonar URL, user and password from secret or task params
+          if [ "$SONAR_HOST_URL" != "" ]; then  
+            echo "sonar.host.url=$SONAR_HOST_URL" >> sonar-project.properties
+          else
+            echo "sonar.host.url=$(params.SONAR_HOST_URL)" >> sonar-project.properties
+          fi
+          if [ "$SONAR_LOGIN" != "" ]; then  
+            echo "sonar.login=$SONAR_LOGIN" >> sonar-project.properties
+          else
+            echo "sonar.login=$(params.SONAR_LOGIN)" >> sonar-project.properties
+          fi
+          
+          if [ "$SONAR_PASSWORD" != "" ]; then  
+            echo "sonar.password=$SONAR_PASSWORD" >> sonar-project.properties
+          else
+            echo "sonar.password=$(params.SONAR_PASSWORD)" >> sonar-project.properties
+          fi
+
+        fi
+              
+        echo "---------------------------"
+        cat $(workspaces.tmp-workspace.path)/sonar-project.properties
+    - name: sonar-scan
+      image: harbor.tanzu.lab/library/sonar-scanner-cli:4.5
+      workingDir: $(workspaces.tmp-workspace.path)
+      command:
+        - sonar-scanner

@@ -1,0 +1,17 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: mail-sender-pipeline-simple
+  namespace: <DEVELOPER NAMESPACE>
+spec:
+  params:
+    - name: project-key
+      type: string
+  tasks:
+    - name: mail-sender-task-simple
+      taskRef:
+        name: sendmail-simple
+      params:
+        - name: PROJECT_KEY
+          value: $(params.project-key)

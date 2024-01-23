@@ -1,0 +1,111 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: sendmail-simple
+  namespace: <DEVELOPER NAMESPACE>
+  labels:
+    app.kubernetes.io/version: "0.2"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Messaging
+    tekton.dev/tags: mail
+    tekton.dev/displayName: "send mail"
+    tekton.dev/platforms: "linux/amd64,linux/s390x,linux/ppc64le,linux/arm64"
+spec:
+  description: >-
+    This task sends a simple email to receivers via SMTP server
+
+  params:
+  - name: server
+    type: string
+    description: secret name for SMTP server information (url, port, password)
+    default: sendmail-secret
+  - name: subject
+    type: string
+    description: plain text email subject
+    default: "Supply chain execution successful!"
+  - name: body
+    type: string
+    description: plain text email body
+    default: "FINISHED SUCCESSFULLY"
+  - name: sender
+    type: string
+    description: sender email address
+    default: "ipablo.tanzu.tests@gmail.com"
+  - name: recipients
+    type: string
+    description: recipient email addresses (space delimited list)
+    default: "pablo.iglesias@broadcom.com"
+  - name: PROJECT_KEY
+    description: Project's unique key
+    default: "carto-key"
+  stepTemplate:
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 0
+      seccompProfile:
+        type: RuntimeDefault
+  steps:
+  - name: send
+    image: harbor.tanzu.lab/library/python:3.8-alpine
+    script: |
+      #!/usr/bin/env python3
+      import smtplib, ssl, os
+      import email.utils as utils
+      port = os.getenv('PORT')
+      smtp_server = os.getenv('SERVER')
+      sender_email = "$(params.sender)"
+      receiver_emails = "$(params.recipients)"
+      user = os.getenv('USER')
+      password = os.getenv('PASSWORD')
+      tls = os.getenv('TLS')
+      msgid = utils.make_msgid(domain='tanzu.cc')
+      message = f"""\
+      Subject: $(params.subject)
+      To: {receiver_emails}
+      From: {sender_email}
+      message-id: {msgid}
+
+      Supply chain for workload $(params.PROJECT_KEY) status update: $(params.body)"""
+      print(message)
+      if tls == 'True':
+          context = ssl.create_default_context()
+          server = smtplib.SMTP_SSL(smtp_server, port, context=context)
+      else:
+          server = smtplib.SMTP(smtp_server, port)
+      if password != '':
+          server.login(user, password)
+      for receiver in [item for item in receiver_emails.split(' ') if item]:
+          server.sendmail(sender_email, receiver, message.encode('utf-8'))
+      server.quit()
+    env:
+    - name: USER
+      valueFrom:
+        secretKeyRef:
+          name: $(params.server)
+          key: user
+    - name: PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: $(params.server)
+          key: password
+    - name: TLS
+      valueFrom:
+        secretKeyRef:
+          name: $(params.server)
+          key: tls
+    - name: SERVER
+      valueFrom:
+        secretKeyRef:
+          name: $(params.server)
+          key: url
+    - name: PORT
+      valueFrom:
+        secretKeyRef:
+          name: $(params.server)
+          key: port

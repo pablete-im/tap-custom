@@ -1,0 +1,35 @@
+apiVersion: carto.run/v1alpha1
+kind: ClusterDelivery
+metadata:
+  name: delivery-basic-mail
+spec:
+  resources:
+  - name: source-provider
+    params:
+    - default: default
+      name: serviceAccount
+    - default: go-git
+      name: gitImplementation
+    templateRef:
+      kind: ClusterSourceTemplate
+      name: delivery-source-template
+  - deployment:
+      resource: source-provider
+    name: deployer
+    params:
+    - default: default
+      name: serviceAccount
+    templateRef:
+      kind: ClusterDeploymentTemplate
+      name: app-deploy
+  - name: sendmail
+    templateRef: 
+      kind: ClusterDeploymentTemplate
+      name: mail-sender-deploy-template
+    params:
+    - default: default
+      name: serviceAccount
+    deployment:
+      resource: deployer
+  selector:
+    app.tanzu.vmware.com/deliverable-type: web-custom
