@@ -1,0 +1,115 @@
+# Copyright 2021 VMware
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: git-writer
+  namespace: <DEVELOPER NAMESPACE>
+spec:
+  description: |-
+    A task that writes a given set of files (provided as a json base64-encoded)
+    to git repository under a specific directory (`./kustomize`).
+  params: 
+    - name: git_secret
+      type: string
+      description: secret name for GIT credentials and config
+      default: git-credentials
+    - name: git_repository
+      description: The repository path
+      type: string
+      default: https://gitlab.tanzu.lab/ipablo-group/java-server-side-ui.git
+    - name: git_branch
+      description: The git branch to read and write
+      type: string
+      default: "main"
+    - name: git_commit_message
+      description: Message for the git commit
+      type: string
+      default: New Deliverable version
+    - name: files
+      type: string
+      description: >
+        Base64-encoded json map of files to write to registry, for example -
+        eyAiUkVBRE1FLm1kIjogIiMgUmVhZG1lIiB9
+    - name: api-descriptors
+      description: api descriptors config. This param has been included to force dependency with a previous resource in the CSC
+      type: string
+  stepTemplate:
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 0
+      seccompProfile:
+        type: RuntimeDefault
+  steps:
+    - name: git-clone-and-push
+      image: harbor.tanzu.lab/library/paketobuildpacks/build:base
+      workingDir: /tmp
+      script: |
+        #!/usr/bin/env bash
+
+        set -o errexit
+        set -o xtrace
+
+        echo $GIT_CACERT > git-cacert.pem
+        cat git-cacert.pem
+        git config --global user.email ${GIT_USER}
+        git config --global user.name ${GIT_EMAIL}
+        git config --global credential.helper store
+        git config --global http.sslCAInfo $(pwd)/git-cacert.pem
+
+        GIT_REPO=$(params.git_repository)
+        GIT_AUTHENTICATED="https://${GIT_USER}:${GIT_PASSWORD}@$(echo $GIT_REPO | sed -E 's/^\s*.*:\/\///g')"
+
+        git clone ${GIT_AUTHENTICATED} ./repo
+        cd repo
+
+        git checkout -b $(params.git_branch) || git checkout $(params.git_branch)
+        git pull --rebase origin $(params.git_branch) || true
+
+        mkdir -p kustomize && rm -rf kustomize/*
+        cd kustomize
+
+        echo '$(params.files)' | base64 --decode > files.json
+        eval "$(cat files.json | jq -r 'to_entries | .[] | @sh "mkdir -p $(dirname \(.key)) && echo \(.value) > \(.key) && git add \(.key)"')"
+
+        git commit -m "$(params.git_commit_message)"
+        git push origin $(params.git_branch)
+      env:
+      - name: GIT_USER
+        valueFrom:
+          secretKeyRef:
+            name: $(params.git_secret)
+            key: git-user
+      - name: GIT_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: $(params.git_secret)
+            key: git-password
+      - name: GIT_EMAIL
+        valueFrom:
+          secretKeyRef:
+            name: $(params.git_secret)
+            key: git-email
+      - name: GIT_CACERT
+        valueFrom:
+          secretKeyRef:
+            name: $(params.git_secret)
+            key: git-cacert

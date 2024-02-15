@@ -4,9 +4,10 @@ Customizations for Tap OOB Supply Chains and Deliveries
 This project currently contains 2 customizations
 
  - A ClusterDelivery customization to send emails at the end of the Deployment process
- - A ClusterSupplyChain customization to run SonarQube analysis, evaluate the Quality Gate and send an email with the result of the scan. 
+ - A ClusterSupplyChain customization to run SonarQube analysis, evaluate the Quality Gate and send an email with the result of the scan. This customization creates a Cartographer Deliverable with a label to be selected by the previously described ClusterDelivery.
+ - A ClusterSupplyChain customization to run SonarQube analysis, evaluate the Quality Gate, send an email with the result of the scan and create a ConfigMap with the Deliverable instead creating the Deliverable itself. The Deliverable inside the ConfigMap is then writen to a GitRepository by a git-writer resource to enable GitOps.
 
-**NOTE:** When inspecting the source files, you'll need to replace the "<DEVELOPER NAMESPACE>" placeholders in the different yaml files and the placeholders  in the secrets.
+**NOTE:** When inspecting the source files, you'll need to replace the "<DEVELOPER NAMESPACE>" placeholders in the different yaml files and the placeholders in the secrets.
 
 ## Summary email sending at the end of the Delivery creation process
 
@@ -71,3 +72,6 @@ This is the Tekton Pipeline. Largely stolen from this [Cartographer tutorial](ht
 
 This is _THE ACTUAL TASK_. It was borrowed from the Tekton Task Hub and modified to fit our needs (link in the file). Don't worry about the details. Just know that it runs a Sonarqube scan, connecting to an existing Sonarqube server.
 
+## Sonarqube, Quality Gate Supply Chain and Git Writer Example
+
+//TODO

@@ -1,0 +1,32 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: git-writer-pipeline
+  namespace: <DEVELOPER NAMESPACE>
+spec:
+  params:
+#    - name: git_repository
+#      type: string
+#    - name: git_branch
+#      type: string
+    - name: files
+      type: string
+    - name: api-descriptors
+      type: string
+
+  tasks:
+    - name: git-writer-task
+      taskRef:
+        name: git-writer
+      params:
+      - name: files
+        value: $(params.files)
+      - name: api-descriptors
+        value: $(params.api-descriptors)
+#        - name: git_repository
+#          value: $(params.git_repository)
+#        - name: git_branch
+#          value: $(params.git_branch)
+#        - name: api-descriptors
+#          value: $(params.api-descriptors)
